@@ -4,10 +4,15 @@ name = "influxdb"
 version = "0.1.0"
 
 [dependencies]
-
-[dev-dependencies]
-hyper = "0.10.4"
-reqwest = "0.4.0"
+futures = "0.1.10"
+quick-error = "1.1.0"
 serde = "0.9.5"
 serde_derive = "0.9.5"
 serde_json = "0.9.4"
+tokio-core = "0.1.4"
+
+[dependencies.hyper]
+git = "https://github.com/hyperium/hyper/"
+
+[dev-dependencies]
+reqwest = "0.4.0"

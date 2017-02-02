@@ -1,14 +1,39 @@
-extern crate hyper;
+extern crate tokio_core;
+extern crate futures;
 extern crate reqwest;
 extern crate serde;
 extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 
+extern crate influxdb;
+
 use std::error::Error;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
 
-use hyper::status::StatusClass;
+use futures::Future;
+
+use influxdb::{AsyncDb, QueryResponse};
+
+const HOSTNAME: &'static str = "http://localhost:8086/";
+
+#[test]
+fn query_asynchronously() {
+    let db = fresh_db();
+
+    db.add_data("cpu_load_short,host=server01,region=us-west value=0.64 1434055562000000000")
+        .unwrap();
+
+    let response = with_core(|core| {
+        let async_db = AsyncDb::new(core.handle(), HOSTNAME, &db.name).unwrap();
+
+        async_db.query(r#"SELECT "value","host" FROM "cpu_load_short" WHERE "region"='us-west'"#)
+    });
+
+    assert_eq!(response.results[0].series[0].name, "cpu_load_short");
+    assert_eq!(response.results[0].series[0].values[0][1].as_f64(), Some(0.64));
+    assert_eq!(response.results[0].series[0].values[0][2].as_str(), Some("server01"));
+}
 
 #[test]
 fn test_infrastructure() {
@@ -26,35 +51,29 @@ fn test_infrastructure() {
     assert_eq!(response.results[0].series[0].values[0][2].as_str(), Some("server01"));
 }
 
-#[derive(Debug, Deserialize)]
-struct QueryResponse {
-    results: Vec<QueryResult>,
-}
-
-#[derive(Debug, Deserialize)]
-struct QueryResult {
-    #[serde(default)]
-    series: Vec<Series>,
-    statement_id: usize, // TODO: correct integer type?
-}
-
-#[derive(Debug, Deserialize)]
-struct Series {
-    name: String,
-    columns: Vec<String>, // TODO: `time` is always added?
-    values: Vec<Vec<serde_json::Value>>, // TODO: matches with columns?
-}
-
 fn fresh_db() -> TestingDb {
     static DB_COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;
 
     let id = DB_COUNTER.fetch_add(1, Ordering::SeqCst);
     let name = format!("influxdb_rs_{}", id);
-    let db = TestingDb::new("http://localhost:8086/", name)
+    let db = TestingDb::new(HOSTNAME, name)
         .expect("Unable to create test database");
     db.create_db()
         .expect("Unable to create test database");
     db
+}
+
+fn with_core<F, T>(f: F) -> T::Item
+    where F: FnOnce(&mut tokio_core::reactor::Core) -> T,
+          T: Future,
+          T::Error: std::fmt::Debug,
+{
+    let mut core = tokio_core::reactor::Core::new()
+        .expect("Unable to create reactor core for testing");
+
+    let future = f(&mut core);
+
+    core.run(future).expect("Unable to run future to completion")
 }
 
 struct TestingDb {
@@ -139,11 +158,16 @@ impl Drop for TestingDb {
 }
 
 fn check_result(res: &mut reqwest::Response) -> Result<(), Box<Error>> {
-    match res.status().class() {
-        StatusClass::Success => Ok(()),
-        StatusClass::ClientError => Err(parse_influx_server_error(res, "Client error").into()),
-        StatusClass::ServerError => Err(parse_influx_server_error(res, "Server error").into()),
-        _ => Err(parse_influx_server_error(res, "Unknown error").into()),
+    let status = *res.status();
+
+    if status.is_success() {
+        Ok(())
+    } else if status.is_client_error() {
+        Err(parse_influx_server_error(res, "Client error").into())
+    } else if status.is_server_error() {
+        Err(parse_influx_server_error(res, "Server error").into())
+    } else {
+        Err(parse_influx_server_error(res, "Unknown error").into())
     }
 }
 
