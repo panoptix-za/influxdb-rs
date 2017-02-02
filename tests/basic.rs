@@ -2,9 +2,6 @@ extern crate tokio_core;
 extern crate futures;
 extern crate reqwest;
 extern crate serde;
-extern crate serde_json;
-#[macro_use]
-extern crate serde_derive;
 
 extern crate influxdb;
 
@@ -13,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
 
 use futures::Future;
 
-use influxdb::{AsyncDb, QueryResponse};
+use influxdb::{AsyncDb, QueryResponse, InfluxServerError};
 
 const HOSTNAME: &'static str = "http://localhost:8086/";
 
@@ -29,6 +26,23 @@ fn query_asynchronously() {
 
         async_db.query(r#"SELECT "value","host" FROM "cpu_load_short" WHERE "region"='us-west'"#)
     });
+
+    assert_eq!(response.results[0].series[0].name, "cpu_load_short");
+    assert_eq!(response.results[0].series[0].values[0][1].as_f64(), Some(0.64));
+    assert_eq!(response.results[0].series[0].values[0][2].as_str(), Some("server01"));
+}
+
+#[test]
+fn add_data_asynchronously() {
+    let db = fresh_db();
+
+    with_core(|core| {
+        let async_db = AsyncDb::new(core.handle(), HOSTNAME, &db.name).unwrap();
+
+        async_db.add_data("cpu_load_short,host=server01,region=us-west value=0.64 1434055562000000000")
+    });
+
+    let response: QueryResponse = db.query(r#"SELECT "value","host" FROM "cpu_load_short" WHERE "region"='us-west'"#).unwrap();
 
     assert_eq!(response.results[0].series[0].name, "cpu_load_short");
     assert_eq!(response.results[0].series[0].values[0][1].as_f64(), Some(0.64));
@@ -169,11 +183,6 @@ fn check_result(res: &mut reqwest::Response) -> Result<(), Box<Error>> {
     } else {
         Err(parse_influx_server_error(res, "Unknown error").into())
     }
-}
-
-#[derive(Debug, Deserialize)]
-struct InfluxServerError {
-    error: String,
 }
 
 fn parse_influx_server_error(res: &mut reqwest::Response, kind: &str) -> String {
