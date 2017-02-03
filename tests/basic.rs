@@ -84,6 +84,10 @@ fn fresh_db() -> TestingDb {
         .expect("Unable to create test database");
     db.create_db()
         .expect("Unable to create test database");
+
+    // The InfluxDB created isn't ready immediately; this prevents
+    // intermittent failures.
+    std::thread::sleep(std::time::Duration::from_millis(5));
     db
 }
 
