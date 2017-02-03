@@ -44,19 +44,21 @@ fn add_data_asynchronously() {
 
     let response: QueryResponse = db.query(r#"SELECT "value","host" FROM "cpu_load_short" WHERE "region"='us-west'"#).unwrap();
 
+    assert_eq!(response.results[0].error, None);
     assert_eq!(response.results[0].series[0].name, "cpu_load_short");
     assert_eq!(response.results[0].series[0].values[0][1].as_f64(), Some(0.64));
     assert_eq!(response.results[0].series[0].values[0][2].as_str(), Some("server01"));
 }
 
 #[test]
-#[ignore] // TODO: handle errors returned in the response instead of status code
 fn query_nonexistent_db() {
     let response = with_core(|core| {
         let async_db = AsyncDb::new(core.handle(), HOSTNAME, "does_not_exist").unwrap();
 
         async_db.query(r#"SELECT "value","host" FROM "cpu_load_short" WHERE "region"='us-west'"#)
     });
+
+    assert_eq!(response.results[0].error, Some(String::from("database not found: does_not_exist")));
 }
 
 #[test]

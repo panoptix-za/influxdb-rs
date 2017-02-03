@@ -159,6 +159,7 @@ pub struct QueryResponse {
 pub struct QueryResult {
     #[serde(default)]
     pub series: Vec<Series>,
+    pub error: Option<String>,
     pub statement_id: usize,
 }
 
