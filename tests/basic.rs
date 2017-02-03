@@ -60,6 +60,36 @@ fn query_nonexistent_db() {
 }
 
 #[test]
+fn multiple_queries() {
+    let db = fresh_db();
+
+    db.add_data("cpu_load_short,host=server01,region=us-west value=0.64 1434055562000000000")
+        .unwrap();
+    db.add_data("cpu_load_short,host=server02,region=us-west value=0.8")
+        .unwrap();
+    db.add_data("cpu_load_short,host=server01,region=us-west value=0.4")
+        .unwrap();
+
+    let mut response = with_core(|core| {
+        let async_db = AsyncDb::new(core.handle(), HOSTNAME, &db.name).unwrap();
+
+        async_db.query(r#"SELECT "value","host" FROM "cpu_load_short" WHERE "region"='us-west'; SELECT "value" FROM "cpu_load_short" WHERE "host"='server01'"#)
+    });
+
+    response.results.sort_by_key(|k| k.statement_id);
+
+    assert_eq!(response.results[0].statement_id, 0);
+    assert_eq!(response.results[0].series[0].name, "cpu_load_short");
+    assert_eq!(response.results[0].series[0].values[0][1].as_f64(), Some(0.64));
+    assert_eq!(response.results[0].series[0].values[0][2].as_str(), Some("server01"));
+
+    assert_eq!(response.results[1].statement_id, 1);
+    assert_eq!(response.results[1].series[0].name, "cpu_load_short");
+    assert_eq!(response.results[1].series[0].values[0][1].as_f64(), Some(0.64));
+    assert_eq!(response.results[1].series[0].values[1][1].as_f64(), Some(0.4));
+}
+
+#[test]
 fn test_infrastructure() {
     let db = fresh_db();
 
