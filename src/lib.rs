@@ -125,6 +125,7 @@ fn response_to_json<T>(resp: client::Response) -> Box<Future<Item = T, Error = E
     Box::new(f)
 }
 
+#[must_use = "futures do nothing unless polled"]
 pub struct AddData(Box<Future<Item = (), Error = Error>>);
 
 impl Future for AddData {
@@ -136,6 +137,7 @@ impl Future for AddData {
     }
 }
 
+#[must_use = "futures do nothing unless polled"]
 pub struct Query(Box<Future<Item = QueryResponse, Error = Error>>);
 
 impl Future for Query {
