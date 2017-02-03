@@ -117,6 +117,7 @@ fn response_to_json<T>(resp: client::Response) -> Box<Future<Item = T, Error = E
         .map_err(Error::Hyper)
         .fold(Vec::new(), |mut acc, chunk| {
             // TODO: Is it the best idea to just build up a big `Vec`?
+            // TODO: Is there some way of reusing the vector allocation?
             acc.extend_from_slice(&*chunk);
             futures::future::ok::<_, Error>(acc)
         })
