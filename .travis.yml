@@ -1,0 +1,10 @@
+# Cannot install the APT package in a container due to
+# https://github.com/travis-ci/travis-ci/issues/4838
+sudo: required
+dist: trusty
+language: rust
+cache: cargo
+before_script: |
+  wget https://dl.influxdata.com/influxdb/releases/influxdb_1.2.0_amd64.deb
+  sudo dpkg -i influxdb_1.2.0_amd64.deb
+  sudo service influxdb start
