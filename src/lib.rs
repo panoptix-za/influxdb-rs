@@ -159,7 +159,7 @@ pub struct QueryResponse {
 pub struct QueryResult {
     #[serde(default)]
     pub series: Vec<Series>,
-    pub statement_id: usize, // TODO: correct integer type?
+    pub statement_id: usize,
 }
 
 #[derive(Debug, Deserialize)]
