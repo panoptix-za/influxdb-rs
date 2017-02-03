@@ -17,15 +17,27 @@ quick_error! {
     #[derive(Debug)]
     pub enum Error {
         Url(error: hyper::error::ParseError) {
+            description(error.description())
+            display("Unable to parse URL: {}", error)
             from()
+            cause(error)
         }
         Hyper(error: hyper::Error) {
+            description(error.description())
+            display("Unable to perform HTTP request: {}", error)
             from()
+            cause(error)
         }
         Serde(error: serde_json::Error) {
+            description(error.description())
+            display("Unable to deserialize JSON: {}", error)
             from()
+            cause(error)
         }
-        BadRequest(what: String) {}
+        BadRequest(what: String) {
+            description("The InfluxDB server responded with an error")
+            display("The InfluxDB server responded with an error: {}", what)
+        }
     }
 }
 
