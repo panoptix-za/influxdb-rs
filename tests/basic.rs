@@ -226,7 +226,7 @@ impl TestingDb {
 
 impl Drop for TestingDb {
     fn drop(&mut self) {
-        // TODO: What happens if we drop twice?
+        // Influx does not care if we drop a database that doesn't exist
         self.drop_db().unwrap_or_else(|e| panic!("Unable to drop database {}: {}", self.name, e));
     }
 }
