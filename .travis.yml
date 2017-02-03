@@ -7,4 +7,5 @@ cache: cargo
 before_script: |
   wget https://dl.influxdata.com/influxdb/releases/influxdb_1.2.0_amd64.deb
   sudo dpkg -i influxdb_1.2.0_amd64.deb
+  cat tests/influxdb.udp.conf | sudo tee -a /etc/influxdb/influxdb.conf
   sudo service influxdb start

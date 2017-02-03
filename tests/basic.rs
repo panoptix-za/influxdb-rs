@@ -1,18 +1,28 @@
 extern crate tokio_core;
 extern crate futures;
-extern crate reqwest;
 extern crate serde;
+
+extern crate reqwest;
+#[macro_use]
+extern crate lazy_static;
 
 extern crate influxdb;
 
 use std::error::Error;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
+use std::thread;
+use std::time::Duration;
 
 use futures::Future;
 
-use influxdb::{AsyncDb, QueryResponse, InfluxServerError};
+use influxdb::{AsyncDb, AsyncUdpDb, QueryResponse, InfluxServerError};
 
-const HOSTNAME: &'static str = "http://localhost:8086/";
+const HTTP_BASE_URL: &'static str = "http://localhost:8086/";
+
+const UDP_IP_AND_PORT: &'static str = "127.0.0.1:8089";
+const UDP_DB_NAME: &'static str = "influxdb_rs_udp";
+const UDP_BATCH_TIMEOUT_MS: u64 = 50;
 
 #[test]
 fn query_asynchronously() {
@@ -22,7 +32,7 @@ fn query_asynchronously() {
         .unwrap();
 
     let response = with_core(|core| {
-        let async_db = AsyncDb::new(core.handle(), HOSTNAME, &db.name).unwrap();
+        let async_db = AsyncDb::new(core.handle(), HTTP_BASE_URL, &db.name).unwrap();
 
         async_db.query(r#"SELECT "value","host" FROM "cpu_load_short" WHERE "region"='us-west'"#)
     });
@@ -37,7 +47,7 @@ fn add_data_asynchronously() {
     let db = fresh_db();
 
     with_core(|core| {
-        let async_db = AsyncDb::new(core.handle(), HOSTNAME, &db.name).unwrap();
+        let async_db = AsyncDb::new(core.handle(), HTTP_BASE_URL, &db.name).unwrap();
 
         async_db.add_data("cpu_load_short,host=server01,region=us-west value=0.64 1434055562000000000")
     });
@@ -51,9 +61,25 @@ fn add_data_asynchronously() {
 }
 
 #[test]
+fn add_data_asynchronously_udp() {
+    let test_db = with_udp_db(|async_db| {
+        async_db.add_data("cpu_load_short,host=server01,region=us-west value=0.64 1434055562000000000")
+    });
+
+    thread::sleep(Duration::from_millis(2 * UDP_BATCH_TIMEOUT_MS));
+
+    let response: QueryResponse = test_db.query(r#"SELECT "value","host" FROM "cpu_load_short" WHERE "region"='us-west'"#).unwrap();
+
+    assert_eq!(response.results[0].series[0].name, "cpu_load_short");
+    assert_eq!(response.results[0].series[0].values[0][1].as_f64(), Some(0.64));
+    assert_eq!(response.results[0].series[0].values[0][2].as_str(), Some("server01"));
+}
+
+#[test]
+#[ignore] // TODO: handle errors returned in the response instead of status code
 fn query_nonexistent_db() {
     let response = with_core(|core| {
-        let async_db = AsyncDb::new(core.handle(), HOSTNAME, "does_not_exist").unwrap();
+        let async_db = AsyncDb::new(core.handle(), HTTP_BASE_URL, "does_not_exist").unwrap();
 
         async_db.query(r#"SELECT "value","host" FROM "cpu_load_short" WHERE "region"='us-west'"#)
     });
@@ -73,7 +99,7 @@ fn multiple_queries() {
         .unwrap();
 
     let mut response = with_core(|core| {
-        let async_db = AsyncDb::new(core.handle(), HOSTNAME, &db.name).unwrap();
+        let async_db = AsyncDb::new(core.handle(), HTTP_BASE_URL, &db.name).unwrap();
 
         async_db.query(r#"SELECT "value","host" FROM "cpu_load_short" WHERE "region"='us-west'; SELECT "value" FROM "cpu_load_short" WHERE "host"='server01'"#)
     });
@@ -94,7 +120,7 @@ fn multiple_queries() {
 #[test]
 fn multiple_queries_to_nonexistent_database() {
     let response = with_core(|core| {
-        let async_db = AsyncDb::new(core.handle(), HOSTNAME, "does_not_exist").unwrap();
+        let async_db = AsyncDb::new(core.handle(), HTTP_BASE_URL, "does_not_exist").unwrap();
 
         async_db.query(r#"SELECT "value","host" FROM "cpu_load_short" WHERE "region"='us-west'; SELECT "value" FROM "cpu_load_short" WHERE "host"='server01'"#)
     });
@@ -126,15 +152,46 @@ fn fresh_db() -> TestingDb {
 
     let id = DB_COUNTER.fetch_add(1, Ordering::SeqCst);
     let name = format!("influxdb_rs_{}", id);
-    let db = TestingDb::new(HOSTNAME, name)
+    fresh_db_named(name)
+}
+
+fn fresh_db_named<S>(name: S) -> TestingDb
+    where S: Into<String>,
+{
+    let db = TestingDb::new(HTTP_BASE_URL, name)
         .expect("Unable to create test database");
     db.create_db()
         .expect("Unable to create test database");
 
     // The InfluxDB created isn't ready immediately; this prevents
     // intermittent failures.
-    std::thread::sleep(std::time::Duration::from_millis(5));
+    thread::sleep(Duration::from_millis(5));
     db
+}
+
+// The InfluxDB UDP ingestion matches one UDP port to one
+// database. Since we aren't starting a server for each test, and we
+// want each test to be isolated, we can only have one UDP test at a
+// time.
+fn with_udp_db<F, T>(f: F) -> TestingDb
+    where F: FnOnce(AsyncUdpDb) -> T,
+          T: Future,
+          T::Error: std::fmt::Debug,
+{
+    lazy_static! {
+        static ref MUTEX: Mutex<()> = Mutex::new(());
+    }
+
+    let _lock = MUTEX.lock().expect("Unable to lock for UDP test");
+    let test_db = fresh_db_named(UDP_DB_NAME);
+
+    with_core(|core| {
+        let db = AsyncUdpDb::new(core.handle(), UDP_IP_AND_PORT)
+            .expect("Unable to create UDP database");
+        f(db)
+    });
+
+    test_db
 }
 
 fn with_core<F, T>(f: F) -> T::Item

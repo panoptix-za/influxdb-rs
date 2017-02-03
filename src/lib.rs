@@ -8,9 +8,12 @@ extern crate serde_derive;
 #[macro_use]
 extern crate quick_error;
 
-use futures::{Future, Stream};
+use std::net::SocketAddr;
+
 use futures::future::Either;
+use futures::{Future, Stream, BoxFuture};
 use hyper::client::{self, HttpConnector};
+use tokio_core::net::UdpSocket;
 use tokio_core::reactor::Handle;
 
 quick_error! {
@@ -37,6 +40,18 @@ quick_error! {
         BadRequest(what: String) {
             description("The InfluxDB server responded with an error")
             display("The InfluxDB server responded with an error: {}", what)
+        }
+        AddrParse(error: std::net::AddrParseError) {
+            description(error.description())
+            display("Unable to parse the address: {}", error)
+            from()
+            cause(error)
+        }
+        Udp(error: std::io::Error) {
+            description(error.description())
+            display("Unable to perform UDP request: {}", error)
+            from()
+            cause(error)
         }
     }
 }
@@ -174,4 +189,51 @@ pub struct Series {
 #[derive(Debug, Deserialize)]
 pub struct InfluxServerError {
     pub error: String,
+}
+
+pub struct AsyncUdpDb {
+    handle: Handle,
+    my_addr: SocketAddr,
+    their_addr: SocketAddr,
+}
+
+impl AsyncUdpDb {
+    pub fn new(handle: Handle, ip_port: &str) -> Result<Self> {
+        Ok(AsyncUdpDb {
+            handle: handle,
+            my_addr: "0.0.0.0:0".parse()?,
+            their_addr: ip_port.parse()?,
+        })
+    }
+
+    pub fn add_data(&self, data: &str) -> AddDataUdp {
+        // TODO: We could consume self like `send_dgram` does, which
+        // allows reusing the same socket over and over. The API would
+        // be more annoying, but might be like other futures...
+        let f = match UdpSocket::bind(&self.my_addr, &self.handle) {
+            Ok(socket) => {
+                let f = socket.send_dgram(data.to_owned(), self.their_addr)
+                    .map(|_| ())
+                    .map_err(Error::Udp);
+                Either::A(f)
+            }
+            Err(e) => {
+                Either::B(futures::future::err(Error::Udp(e)))
+            }
+        };
+
+        AddDataUdp(f.boxed())
+    }
+}
+
+#[must_use = "futures do nothing unless polled"]
+pub struct AddDataUdp(BoxFuture<(), Error>);
+
+impl Future for AddDataUdp {
+    type Item = ();
+    type Error = Error;
+
+    fn poll(&mut self) -> futures::Poll<Self::Item, Self::Error> {
+        self.0.poll()
+    }
 }
