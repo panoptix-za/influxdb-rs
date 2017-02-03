@@ -92,6 +92,20 @@ fn multiple_queries() {
 }
 
 #[test]
+fn multiple_queries_to_nonexistent_database() {
+    let response = with_core(|core| {
+        let async_db = AsyncDb::new(core.handle(), HOSTNAME, "does_not_exist").unwrap();
+
+        async_db.query(r#"SELECT "value","host" FROM "cpu_load_short" WHERE "region"='us-west'; SELECT "value" FROM "cpu_load_short" WHERE "host"='server01'"#)
+    });
+
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(response.results[0].statement_id, 0);
+    assert_eq!(response.results[0].series.len(), 0);
+    assert_eq!(response.results[0].error, Some(String::from("not executed")));
+}
+
+#[test]
 fn test_infrastructure() {
     let db = fresh_db();
 
