@@ -50,6 +50,16 @@ fn add_data_asynchronously() {
 }
 
 #[test]
+#[ignore] // TODO: handle errors returned in the response instead of status code
+fn query_nonexistent_db() {
+    let response = with_core(|core| {
+        let async_db = AsyncDb::new(core.handle(), HOSTNAME, "does_not_exist").unwrap();
+
+        async_db.query(r#"SELECT "value","host" FROM "cpu_load_short" WHERE "region"='us-west'"#)
+    });
+}
+
+#[test]
 fn test_infrastructure() {
     let db = fresh_db();
 
