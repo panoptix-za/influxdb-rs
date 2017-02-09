@@ -1,0 +1,12 @@
+[package]
+name = "influxdb-derive"
+version = "0.1.0"
+authors = ["Carol (Nichols || Goulding) <carol.nichols@gmail.com>"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+itertools = "0.5.9"
+quote = "0.3.12"
+syn = "0.11.4"

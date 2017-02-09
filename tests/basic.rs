@@ -8,11 +8,14 @@ extern crate lazy_static;
 
 extern crate influxdb;
 
+#[macro_use]
+extern crate influxdb_derive;
+
 use std::error::Error;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use futures::Future;
 
@@ -152,6 +155,88 @@ fn multiple_queries_to_nonexistent_database() {
     assert_eq!(response.results[0].statement_id, 0);
     assert_eq!(response.results[0].series.len(), 0);
     assert_eq!(response.results[0].error, Some(String::from("not executed")));
+}
+
+#[derive(Measurement)]
+#[influx(rename = "cpu_load_short")]
+struct CpuLoadShort {
+    // Multiple attributes
+    #[influx(tag)]
+    #[influx(rename = "host")]
+    hostname: &'static str,
+    // Multiple values in one attribute
+    #[influx(tag, field)]
+    region: &'static str,
+    #[influx(field)]
+    value: f64,
+    #[influx(timestamp)]
+    when: SystemTime,
+}
+
+#[test]
+fn typed_insert() {
+    let item = CpuLoadShort {
+        hostname: "server03",
+        region: "us-west",
+        value: 0.78,
+        when: SystemTime::now(),
+    };
+
+    let db = fresh_db();
+
+    with_core(|core| {
+        let async_db = AsyncDb::new(core.handle(), HTTP_BASE_URL, &db.name).unwrap();
+
+        async_db.add_data(item)
+    });
+
+    let response: QueryResponse = db.query(r#"SELECT "value", "host" FROM "cpu_load_short""#).unwrap();
+
+    assert_eq!(response.results[0].error, None);
+    assert_eq!(response.results[0].series[0].name, "cpu_load_short");
+    assert_eq!(response.results[0].series[0].values.len(), 1);
+    assert_eq!(response.results[0].series[0].values[0][1].as_f64(), Some(0.78));
+    assert_eq!(response.results[0].series[0].values[0][2].as_str(), Some("server03"));
+}
+
+#[test]
+fn batched_typed_insert() {
+    let items = vec![
+        CpuLoadShort {
+            hostname: "server03",
+            region: "us-west",
+            value: 0.78,
+            when: SystemTime::now(),
+        },
+        CpuLoadShort {
+            hostname: "server07",
+            region: "us-east",
+            value: 0.32,
+            when: SystemTime::now(),
+        },
+        CpuLoadShort {
+            hostname: "server05",
+            region: "us-west",
+            value: 0.55,
+            when: SystemTime::now(),
+        },
+    ];
+
+    let db = fresh_db();
+
+    with_core(|core| {
+        let async_db = AsyncDb::new(core.handle(), HTTP_BASE_URL, &db.name).unwrap();
+
+        async_db.add_data(&items)
+    });
+
+    let response: QueryResponse = db.query(r#"SELECT "value", "host" FROM "cpu_load_short""#).unwrap();
+
+    assert_eq!(response.results[0].error, None);
+    assert_eq!(response.results[0].series[0].name, "cpu_load_short");
+    assert_eq!(response.results[0].series[0].values.len(), 3);
+    assert_eq!(response.results[0].series[0].values[0][1].as_f64(), Some(0.78));
+    assert_eq!(response.results[0].series[0].values[0][2].as_str(), Some("server03"));
 }
 
 #[test]

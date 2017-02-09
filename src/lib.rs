@@ -16,6 +16,11 @@ use hyper::client::{self, HttpConnector};
 use tokio_core::net::UdpSocket;
 use tokio_core::reactor::Handle;
 
+pub mod measurement;
+pub use measurement::Measurement;
+
+// TODO: documentation
+
 quick_error! {
     #[derive(Debug)]
     pub enum Error {
@@ -83,9 +88,13 @@ impl AsyncDb {
         })
     }
 
-    pub fn add_data(&self, data: &str) -> AddData {
+    pub fn add_data<T>(&self, measure: T) -> AddData
+        where T: Measurement
+    {
         let mut request = client::Request::new(hyper::Method::Post, self.write_endpoint.clone());
-        request.set_body(data.to_owned());
+        let mut bytes_to_send = String::new();
+        measure.to_data(&mut bytes_to_send);
+        request.set_body(bytes_to_send.into_bytes());
 
         let response =
             self.client.request(request)
@@ -206,13 +215,18 @@ impl AsyncUdpDb {
         })
     }
 
-    pub fn add_data(&self, data: &str) -> AddDataUdp {
+    pub fn add_data<T>(&self, measure: T) -> AddDataUdp
+        where T: Measurement
+    {
+        let mut bytes_to_send = String::new();
+        measure.to_data(&mut bytes_to_send);
+
         // TODO: We could consume self like `send_dgram` does, which
         // allows reusing the same socket over and over. The API would
         // be more annoying, but might be like other futures...
         let f = match UdpSocket::bind(&self.my_addr, &self.handle) {
             Ok(socket) => {
-                let f = socket.send_dgram(data.to_owned(), self.their_addr)
+                let f = socket.send_dgram(bytes_to_send, self.their_addr)
                     .map(|_| ())
                     .map_err(Error::Udp);
                 Either::A(f)
