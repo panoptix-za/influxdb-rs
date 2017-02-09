@@ -61,6 +61,29 @@ fn add_data_asynchronously() {
 }
 
 #[test]
+fn add_batched_data_asynchronously() {
+    let db = fresh_db();
+
+    with_core(|core| {
+        let async_db = AsyncDb::new(core.handle(), HTTP_BASE_URL, &db.name).unwrap();
+
+        async_db.add_data(r#"
+cpu_load_short,host=server01,region=us-west value=0.64 1434055562000000000
+cpu_load_short,host=server02,region=us-east value=0.23
+cpu_load_short,host=server03,region=us-west value=0.01 1434055587000000000
+rpm,host=server01,region=us-west value=1434"#)
+    });
+
+    let response: QueryResponse = db.query(r#"SELECT "value", "host" FROM "cpu_load_short""#).unwrap();
+
+    assert_eq!(response.results[0].error, None);
+    assert_eq!(response.results[0].series[0].name, "cpu_load_short");
+    assert_eq!(response.results[0].series[0].values.len(), 3);
+    assert_eq!(response.results[0].series[0].values[0][1].as_f64(), Some(0.64));
+    assert_eq!(response.results[0].series[0].values[0][2].as_str(), Some("server01"));
+}
+
+#[test]
 fn add_data_asynchronously_udp() {
     let test_db = with_udp_db(|async_db| {
         async_db.add_data("cpu_load_short,host=server01,region=us-west value=0.64 1434055562000000000")
