@@ -127,6 +127,9 @@ cargo test
 
 ## License
 
+influxdb-rs is distributed under the terms of both the MIT license and the
+Apache License (Version 2.0).
+
 ## Authors
 
 This crate was created by Jake Goulding and Carol (Nichols || Goulding) of

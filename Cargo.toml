@@ -1,7 +1,11 @@
 [package]
-authors = ["Jake Goulding <jake.goulding@integer32.com>"]
 name = "influxdb"
 version = "0.1.0"
+license = "MIT/Apache-2.0"
+authors = [
+    "Jake Goulding <jake.goulding@integer32.com>",
+    "Carol (Nichols || Goulding) <carol.nichols@integer32.com>"
+]
 
 [dependencies]
 futures = "0.1.10"
