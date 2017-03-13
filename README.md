@@ -17,7 +17,7 @@ Then create an instance of `influxdb::AsyncDb` and add instances of your
 struct. Check out the code in the `examples` directory to see how this code
 interacts with futures.
 
-```
+```rust
 extern crate influxdb;
 #[macro_use]
 extern crate influxdb_derive;
