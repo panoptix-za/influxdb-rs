@@ -71,6 +71,7 @@
 
 extern crate tokio_core;
 extern crate hyper;
+extern crate url;
 extern crate futures;
 extern crate serde;
 extern crate serde_json;
@@ -95,7 +96,7 @@ pub use measurement::Measurement;
 quick_error! {
     #[derive(Debug)]
     pub enum Error {
-        Url(error: hyper::error::ParseError) {
+        Url(error: url::ParseError) {
             description(error.description())
             display("Unable to parse URL: {}", error)
             from()
@@ -136,14 +137,14 @@ type Result<T> = ::std::result::Result<T, Error>;
 
 pub struct AsyncDb {
     name: String,
-    query_endpoint: hyper::Url,
-    write_endpoint: hyper::Url,
+    query_endpoint: url::Url,
+    write_endpoint: url::Url,
     client: hyper::Client<HttpConnector>,
 }
 
 impl AsyncDb {
     pub fn new(handle: Handle, base_url: &str, name: &str) -> Result<Self> {
-        let base_url = hyper::Url::parse(base_url)?;
+        let base_url = url::Url::parse(base_url)?;
         let query_endpoint = base_url.join("/query")?;
         let mut write_endpoint = base_url.join("/write")?;
         write_endpoint.query_pairs_mut()
@@ -162,7 +163,8 @@ impl AsyncDb {
     pub fn add_data<T>(&self, measure: T) -> AddData
         where T: Measurement
     {
-        let mut request = client::Request::new(hyper::Method::Post, self.write_endpoint.clone());
+        let mut request = client::Request::new(
+            hyper::Method::Post, self.write_endpoint.as_str().parse().expect("Invalid request URL"));
         let mut bytes_to_send = String::new();
         measure.to_data(&mut bytes_to_send);
         request.set_body(bytes_to_send.into_bytes());
@@ -183,7 +185,7 @@ impl AsyncDb {
             .append_pair("q", query);
 
         let response =
-            self.client.get(query_endpoint)
+            self.client.get(query_endpoint.as_str().parse().expect("Invalid query URL"))
             .map_err(Error::Hyper)
             .and_then(check_response_code)
             .and_then(response_to_json);
