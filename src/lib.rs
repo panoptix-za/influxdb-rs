@@ -80,6 +80,7 @@ extern crate serde_derive;
 extern crate quick_error;
 
 use std::net::SocketAddr;
+use std::str::FromStr;
 
 use futures::future::Either;
 use futures::{Future, Stream, BoxFuture};
@@ -95,7 +96,7 @@ pub use measurement::Measurement;
 quick_error! {
     #[derive(Debug)]
     pub enum Error {
-        Url(error: hyper::error::ParseError) {
+        Url(error: hyper::error::UriError) {
             description(error.description())
             display("Unable to parse URL: {}", error)
             from()
@@ -136,19 +137,17 @@ type Result<T> = ::std::result::Result<T, Error>;
 
 pub struct AsyncDb {
     name: String,
-    query_endpoint: hyper::Url,
-    write_endpoint: hyper::Url,
+    query_endpoint: hyper::Uri,
+    write_endpoint: hyper::Uri,
     client: hyper::Client<HttpConnector>,
 }
 
 impl AsyncDb {
     pub fn new(handle: Handle, base_url: &str, name: &str) -> Result<Self> {
-        let base_url = hyper::Url::parse(base_url)?;
-        let query_endpoint = base_url.join("/query")?;
-        let mut write_endpoint = base_url.join("/write")?;
-        write_endpoint.query_pairs_mut()
-            .append_pair("db", &name);
-
+        let base_url = hyper::Uri::from_str(base_url)?;
+        let query_endpoint = hyper::Uri::from_str(&format!("{}/query", base_url))?;
+        let write_endpoint = hyper::Uri::from_str(&format!("{}/write?db={}", base_url, &name))?;
+        
         let client = hyper::Client::configure().keep_alive(false).build(&handle);
 
         Ok(AsyncDb {
@@ -177,10 +176,12 @@ impl AsyncDb {
     }
 
     pub fn query(&self, query: &str) -> Query {
-        let mut query_endpoint = self.query_endpoint.clone();
-        query_endpoint.query_pairs_mut()
-            .append_pair("db", &self.name)
-            .append_pair("q", query);
+        let query_endpoint = hyper::Uri::from_str(
+                                &format!("{}/query?db={}&q={}",
+                                self.query_endpoint,
+                                &self.name,
+                                query)
+                                ).expect("Invalid query endpoint");
 
         let response =
             self.client.get(query_endpoint)
