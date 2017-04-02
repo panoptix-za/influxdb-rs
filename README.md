@@ -65,6 +65,7 @@ fn main() {
     ];
 
     let insert = async_db.add_data(&batch); // Returns a Future
+    core.run(insert).expect("Unable to run future to completion");
 }
 ```
 
